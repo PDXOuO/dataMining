@@ -1,4 +1,11 @@
+# 运行模型与生成提交文件所需
 pandas>=2.2
 numpy>=1.26
 scipy>=1.13
 openpyxl>=3.1
+
+# 生成技术报告与配图所需（仅 make report / make figures 需要）
+matplotlib>=3.8
+reportlab>=4.0
+python-docx>=1.1
+Pillow>=10.0
