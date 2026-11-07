@@ -21,7 +21,8 @@ data/processed/
 data/cache/
 
 # 运行输出（提交物通过 make submit 生成到 root 或指定路径）
-outputs/
+outputs/*
+!outputs/result.csv
 *.log
 
 # 本地工作目录
