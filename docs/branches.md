@@ -87,3 +87,27 @@ B（分群迁移）──────┐
 - 评分中老人组占 60%，只有具备个体历史建模能力的方案才能吃到这部分分数，A、B 单独使用都不够；
 - C 的三路召回同时覆盖了「有历史」与「无历史」两类样本，且不依赖无法对齐的用户 ID；
 - D 的增益依赖标签构造质量，在 956 人规模上不确定性过高，不适合作为首次提交的主方案。
+
+## 六、分支索引
+
+| 分支 | 首次提交 | 设计文档 | 当前状态 |
+|---|---|---|---|
+| `main` | `97b95b1` | `docs/research.md`、`docs/branches.md` | 汇总分支，持续维护 |
+| `solution/a-popularity` | `690ac22` | `docs/solutions/a-popularity.md` | 设计完成，待实现 |
+| `solution/b-group-migration` | `6d0012e` | `docs/solutions/b-group-migration.md` | 设计完成，待实现 |
+| `solution/c-itemcf-hybrid` | `4084a4d` | `docs/solutions/c-itemcf-hybrid.md` | 设计完成，待实现 |
+| `solution/d-two-stage-ranker` | `4e71444` | `docs/solutions/d-two-stage-ranker.md` | 设计完成，待实现 |
+
+切换查看某个方案的完整设计：
+
+```bash
+git checkout solution/c-itemcf-hybrid
+cat docs/solutions/c-itemcf-hybrid.md
+```
+
+## 七、下一步
+
+1. 在 `main` 补齐离线回测框架（数据加载、时间切分、指标计算、提交校验），作为所有方案的公共底座；
+2. 各方案分支从更新后的 `main` 变基（`git rebase main`）后开始实现；
+3. 实现完成后，将回测指标回填至本文件第三节的对比表，据此决定合入 `main` 的方案。
+
