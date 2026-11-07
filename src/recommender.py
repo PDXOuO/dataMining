@@ -393,7 +393,7 @@ class HybridRecommender:
         else:
             same = np.zeros(len(cand))
         score = (pop_n ** beta) * ((prob_n + 0.05) ** gamma) * (1.0 + 0.35 * same)
-        if self.new_weight:
+        if self.new_weight and self.p.get("use_new_weight", True):
             nw = np.array([self.new_weight.get(self.items[j], 1.0) for j in cand])
             score = score * nw
         order = np.argsort(-score)
