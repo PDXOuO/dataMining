@@ -1,7 +1,16 @@
 [project]
 name = "datamining"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "图书馆推荐算法竞赛初赛提交包：院校-类目分层贝叶斯推荐"
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "openpyxl>=3.1",
+    "matplotlib>=3.8",
+    "reportlab>=4.0",
+    "python-docx>=1.1",
+    "Pillow>=10.0",
+]
