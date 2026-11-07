@@ -20,7 +20,7 @@ data/interim/
 data/processed/
 data/cache/
 
-# 运行输出（提交物通过 make submit 生成到 root 或指定路径）
+# 运行输出（提交物打包到 submission/）
 outputs/*
 !outputs/result.csv
 *.log
