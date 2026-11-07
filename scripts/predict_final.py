@@ -55,6 +55,7 @@ def main():
     ap.add_argument("--lam", type=float, default=1.5)
     ap.add_argument("--k_cls2", type=float, default=1.6)
     ap.add_argument("--newbook_quantile", type=float, default=0.70)
+    ap.add_argument("--max_new", type=int, default=2)
     args = ap.parse_args()
 
     task = build_valid_task()
@@ -69,6 +70,7 @@ def main():
             "lam": args.lam,
             "k_cls2": args.k_cls2,
             "newbook_quantile": args.newbook_quantile,
+            "max_new_per_list": args.max_new,
         }
     ).fit(hist, task["newbooks"])
 

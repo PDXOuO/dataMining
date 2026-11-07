@@ -36,6 +36,7 @@ PARAMS = {
     "lam": 1.5,              # 向「院系类目占比 × 类目内全局份额」的平滑强度
     "k_cls2": 1.6,           # 老人：同二级类目提权系数
     "newbook_quantile": 0.70,  # 新书赋分位（在其二级类目内的分位）
+    "max_new_per_list": 2,   # 每份推荐列表中新书的数量上限
     "top_k": 10,
 }
 
@@ -102,6 +103,7 @@ class DeptBayesRecommender:
         d_n = d_cnt.sum(axis=1)
         g_cnt = d_cnt.sum(axis=0)
         self.has_count = g_cnt > 0
+        self.is_new = ~self.has_count
 
         # 分层先验：院系内二级类目占比 × 类目内全局份额
         g_c2 = g_cnt @ member
@@ -168,8 +170,19 @@ class DeptBayesRecommender:
             prof = profiles.get(rid, {})
             calls = hist_map.get(rid) or []
             s = self.score_for(prof.get("dept", "其他"), calls)
-            order = np.argsort(-s)[: k * 3]
-            picked = [self.items[j] for j in order if s[j] > 0][:k]
+            order = np.argsort(-s)[: k * 6]
+            cap_new = int(self.p.get("max_new_per_list", 10))
+            picked, n_new = [], 0
+            for j in order:
+                if len(picked) >= k:
+                    break
+                if s[j] <= 0:
+                    continue
+                if self.is_new[j]:
+                    if n_new >= cap_new:
+                        continue
+                    n_new += 1
+                picked.append(self.items[j])
             if len(picked) < k:
                 for j in order:
                     c = self.items[j]
