@@ -78,7 +78,14 @@ FIELDS = [
     ("联系方式", TEAM["contact"]),
 ]
 
-SIGN = f"队伍负责人签字：__________________　　日期：{TEAM['date']}"
+SIGN_LEAD = "队伍负责人签字："
+SIGN_DATE = f"　　日期：{TEAM['date']}"
+SIGN = SIGN_LEAD + "__________________" + SIGN_DATE
+
+# 手写签名图片（透明底 PNG）；存在则替代下划线，缺失时退回空白下划线
+SIGN_IMG = ROOT / "assets" / "signature.png"
+SIGN_H_PT = 30          # 签名在 PDF 中的高度（pt）
+SIGN_H_CM = 0.90        # 签名在 DOCX 中的高度（cm）
 
 
 # ---------------- DOCX ----------------
@@ -96,7 +103,7 @@ def build_docx(path: Path):
     normal.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
 
     def para(text, size=12, bold=False, font="宋体", align=None, first_indent=None,
-             space_before=0, space_after=6, line=1.55):
+             space_before=0, space_after=4, line=1.35):
         p = doc.add_paragraph()
         if align is not None:
             p.alignment = align
@@ -120,17 +127,34 @@ def build_docx(path: Path):
         para(t, first_indent=24)
 
     for head, body in ITEMS:
-        para(head, bold=True, font="黑体", space_before=10, space_after=4)
+        para(head, bold=True, font="黑体", space_before=8, space_after=3)
         para(body, first_indent=24)
 
     para(CLOSING, first_indent=24, space_before=10)
 
-    para("", space_after=10)
+    para("", space_after=6)
     for label, line in FIELDS:
         para(f"{label}：{line}", space_before=2, space_after=2)
 
-    para("", space_after=14)
-    para(SIGN, align=WD_ALIGN_PARAGRAPH.RIGHT, space_before=8, space_after=2)
+    para("", space_after=8)
+    if SIGN_IMG.exists():
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        p.paragraph_format.space_before = Pt(8)
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.line_spacing = 1.0
+        for text in (SIGN_LEAD,):
+            r = p.add_run(text)
+            r.font.name = "宋体"
+            r.font.size = Pt(12)
+            r._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+        p.add_run().add_picture(str(SIGN_IMG), height=Cm(SIGN_H_CM))
+        r = p.add_run(SIGN_DATE)
+        r.font.name = "宋体"
+        r.font.size = Pt(12)
+        r._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    else:
+        para(SIGN, align=WD_ALIGN_PARAGRAPH.RIGHT, space_before=8, space_after=2)
 
     doc.save(path)
 
@@ -159,6 +183,7 @@ def build_pdf(path: Path):
                              wordWrap="CJK")
     st_right = ParagraphStyle("r", fontName=body, fontSize=11, leading=22,
                               alignment=TA_RIGHT, wordWrap="CJK")
+    st_field = ParagraphStyle("f", parent=st_body, leading=17.5, spaceAfter=1)
 
     flow = [Paragraph(TITLE, st_title)]
     for t in INTRO:
@@ -167,11 +192,35 @@ def build_pdf(path: Path):
         flow.append(Paragraph(h, st_head))
         flow.append(Paragraph(b, st_body))
     flow.append(Paragraph(CLOSING, st_body))
-    flow.append(Spacer(1, 10))
+    flow.append(Spacer(1, 2))
     for label, line in FIELDS:
-        flow.append(Paragraph(f"{label}：{line}", st_body))
-    flow.append(Spacer(1, 6))
-    flow.append(Paragraph(SIGN, st_right))
+        flow.append(Paragraph(f"{label}：{line}", st_field))
+    flow.append(Spacer(1, 2))
+    if SIGN_IMG.exists():
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import Image as RLImage
+        from reportlab.platypus import Table, TableStyle
+        iw, ih = ImageReader(str(SIGN_IMG)).getSize()
+        w = SIGN_H_PT * iw / ih
+        date_w = 172
+        doc_w = A4[0] - 6.0 * cm
+        tbl = Table(
+            [[Paragraph(SIGN_LEAD, st_right),
+              RLImage(str(SIGN_IMG), width=w, height=SIGN_H_PT),
+              Paragraph(SIGN_DATE, st_right)]],
+            colWidths=[doc_w - w - 10 - date_w, w + 10, date_w],
+            rowHeights=[SIGN_H_PT + 8],
+        )
+        tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        flow.append(tbl)
+    else:
+        flow.append(Paragraph(SIGN, st_right))
 
     doc = SimpleDocTemplate(
         str(path), pagesize=A4,
