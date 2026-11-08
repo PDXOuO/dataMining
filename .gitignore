@@ -32,3 +32,6 @@ outputs/*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 打包产物（可由 python scripts/make_package.py 重建）
+submission/*.zip

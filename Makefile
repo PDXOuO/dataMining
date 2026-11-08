@@ -26,13 +26,9 @@ pledge:
 # 从零重建全部交付物
 all: install predict figures backtest report pledge package
 
-# 把三样交付物打包到 submission/
-package: predict report pledge
-	mkdir -p submission
-	cp outputs/result.csv "submission/提交结果_队伍名.csv"
-	cp outputs/技术报告.pdf submission/
-	cp outputs/承诺书.pdf submission/
-	cp outputs/承诺书.docx submission/
+# 重建全部交付物并打包成可直接上传的 zip
+package:
+	$(PY) scripts/make_package.py
 
 clean:
 	rm -rf outputs/*.png outputs/result.csv data/cache/*.pkl
