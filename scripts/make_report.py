@@ -1,16 +1,24 @@
 """把 docs/report.md 渲染为 PDF（reportlab，中文宋体/黑体）。
 
+支持的扩展指令（HTML 注释形式，不会出现在输出中）：
+  <!--pagebreak-->            分页
+  <!--cap: 表 1　标题-->       给紧随其后的表格加表题（置于表格上方）
+  <!--entitle: ...-->         英文标题（Times-Bold）
+  <!--enabstract: ...-->      英文摘要（Times-Roman）
+  <!--enkw: ...-->            英文关键词
+
+公式行以 `> ` 开头，行尾写作 ` (1)` 时自动右对齐编号。
+
 用法：python scripts/make_report.py [--out outputs/技术报告.pdf]
 """
 from __future__ import annotations
 
 import argparse
 import re
-import sys
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
@@ -19,9 +27,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image,
     KeepTogether,
-    Preformatted,
     PageBreak,
     Paragraph,
+    Preformatted,
     SimpleDocTemplate,
     Spacer,
     Table,
@@ -49,48 +57,72 @@ for name, path, idx in FONTS:
 BODY_FONT = "Songti" if "Songti" in pdfmetrics.getRegisteredFontNames() else "Helvetica"
 HEAD_FONT = "Heiti" if "Heiti" in pdfmetrics.getRegisteredFontNames() else BODY_FONT
 MONO_FONT = BODY_FONT
+LATIN = "Times-Roman"
+LATIN_B = "Times-Bold"
 
 ACCENT = colors.HexColor("#1f3a5f")
 GREY = colors.HexColor("#666666")
+WIDTH = 16.0 * cm
+REPORT_NAME = "图书馆推荐算法竞赛（2026）· 初赛技术报告"
+SUBTITLE = "赛题方向：高校图书馆个性化图书推荐　·　2026 年 11 月"
 
 ST = {
-    "title": ParagraphStyle("title", fontName=HEAD_FONT, fontSize=20, leading=30,
-                            alignment=TA_CENTER, spaceAfter=6, textColor=ACCENT),
-    "h2": ParagraphStyle("h2", fontName=HEAD_FONT, fontSize=14, leading=22,
-                         spaceBefore=14, spaceAfter=6, textColor=ACCENT),
-    "h3": ParagraphStyle("h3", fontName=HEAD_FONT, fontSize=11.5, leading=19,
-                         spaceBefore=9, spaceAfter=4, textColor=colors.HexColor("#333333")),
+    "title": ParagraphStyle("title", fontName=HEAD_FONT, fontSize=18.5, leading=28,
+                            alignment=TA_CENTER, spaceAfter=4, textColor=ACCENT),
+    "subtitle": ParagraphStyle("subtitle", fontName=BODY_FONT, fontSize=9, leading=14,
+                               alignment=TA_CENTER, textColor=GREY, spaceAfter=14),
+    "h2": ParagraphStyle("h2", fontName=HEAD_FONT, fontSize=13.5, leading=21,
+                         spaceBefore=14, spaceAfter=6, textColor=ACCENT, keepWithNext=1),
+    "h3": ParagraphStyle("h3", fontName=HEAD_FONT, fontSize=11, leading=18,
+                         spaceBefore=9, spaceAfter=4, textColor=colors.HexColor("#333333"),
+                         keepWithNext=1),
     "body": ParagraphStyle("body", fontName=BODY_FONT, fontSize=10.5, leading=17.5,
-                           alignment=TA_JUSTIFY, firstLineIndent=21, wordWrap='CJK', spaceAfter=5),
-    "plain": ParagraphStyle("plain", fontName=BODY_FONT, fontSize=10.5, leading=17.5,
-                            alignment=TA_JUSTIFY, spaceAfter=5, wordWrap='CJK'),
+                           alignment=TA_JUSTIFY, firstLineIndent=21, wordWrap="CJK", spaceAfter=5),
+    "abs": ParagraphStyle("abs", fontName=BODY_FONT, fontSize=9.8, leading=16.5,
+                          alignment=TA_JUSTIFY, firstLineIndent=21, wordWrap="CJK", spaceAfter=4),
+    "kw": ParagraphStyle("kw", fontName=BODY_FONT, fontSize=9.8, leading=16.5,
+                         alignment=TA_JUSTIFY, wordWrap="CJK", spaceBefore=2, spaceAfter=8),
+    "entitle": ParagraphStyle("entitle", fontName=LATIN_B, fontSize=13, leading=19,
+                              alignment=TA_CENTER, spaceBefore=4, spaceAfter=7,
+                              textColor=ACCENT),
+    "enabs": ParagraphStyle("enabs", fontName=LATIN, fontSize=9.2, leading=13.6,
+                            alignment=TA_JUSTIFY, spaceAfter=4),
+    "enkw": ParagraphStyle("enkw", fontName=LATIN, fontSize=9.2, leading=13.6,
+                           alignment=TA_JUSTIFY, spaceAfter=12),
     "bullet": ParagraphStyle("bullet", fontName=BODY_FONT, fontSize=10.5, leading=17,
-                             leftIndent=18, bulletIndent=6, spaceAfter=3, wordWrap='CJK'),
-    "formula": ParagraphStyle("formula", fontName=BODY_FONT, fontSize=10.5, leading=18,
-                              alignment=TA_CENTER, spaceBefore=5, spaceAfter=8, wordWrap='CJK',
-                              backColor=colors.HexColor("#f4f6f9"),
-                              borderPadding=6, textColor=colors.HexColor("#1a1a1a")),
+                             leftIndent=18, bulletIndent=6, spaceAfter=3, wordWrap="CJK"),
+    "ftxt": ParagraphStyle("ftxt", fontName=BODY_FONT, fontSize=9.8, leading=17,
+                           alignment=TA_CENTER, wordWrap="CJK"),
+    "fnum": ParagraphStyle("fnum", fontName=BODY_FONT, fontSize=9.8, leading=17,
+                           alignment=TA_RIGHT),
+    "tabcap": ParagraphStyle("tabcap", fontName=HEAD_FONT, fontSize=9.3, leading=14,
+                             alignment=TA_CENTER, spaceBefore=8, spaceAfter=3,
+                             textColor=colors.HexColor("#333333")),
     "caption": ParagraphStyle("caption", fontName=BODY_FONT, fontSize=9, leading=14,
                               alignment=TA_CENTER, textColor=GREY, spaceBefore=3, spaceAfter=10),
-    "cell": ParagraphStyle("cell", fontName=BODY_FONT, fontSize=8.8, leading=13, wordWrap='CJK'),
+    "cell": ParagraphStyle("cell", fontName=BODY_FONT, fontSize=8.7, leading=12.8, wordWrap="CJK"),
     "code": ParagraphStyle("code", fontName=BODY_FONT, fontSize=9, leading=14.5,
                            leftIndent=12, backColor=colors.HexColor("#f5f5f5"),
                            borderPadding=6, textColor=colors.HexColor("#1a1a1a")),
-    "cellh": ParagraphStyle("cellh", fontName=HEAD_FONT, fontSize=8.8, leading=13,
-                            textColor=colors.white, wordWrap='CJK'),
+    "cellh": ParagraphStyle("cellh", fontName=HEAD_FONT, fontSize=8.7, leading=12.8,
+                            textColor=colors.white, wordWrap="CJK"),
+    "ref": ParagraphStyle("ref", fontName=BODY_FONT, fontSize=8.8, leading=13.6,
+                          alignment=TA_JUSTIFY, leftIndent=22, firstLineIndent=-22,
+                          spaceAfter=3, wordWrap="CJK"),
 }
+
+DIRECTIVE = re.compile(r"^<!--([a-z]+):\s*(.*?)\s*-->$")
+EQNUM = re.compile(r"^(.*?)\s*\((\d+)\)$")
 
 
 def inline(text: str) -> str:
-    """处理行内标记。"""
-    text = (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"`(.+?)`", r'<font name="%s">\1</font>' % MONO_FONT, text)
     return text
 
 
 def parse_table(lines: list[str], i: int):
-    """从 i 开始解析表格，返回 (rows, next_index)。"""
     rows = []
     while i < len(lines) and lines[i].strip().startswith("|"):
         raw = lines[i].strip().strip("|")
@@ -122,12 +154,36 @@ def build_table(rows: list[list[str]], width: float):
     return t
 
 
+def build_formula(text: str, number: str | None):
+    """公式带背景框；有编号时右对齐置于框内。"""
+    if number is None:
+        p = Paragraph(inline(text), ST["ftxt"])
+        t = Table([[p]], colWidths=[WIDTH])
+        inner = text
+    else:
+        t = Table(
+            [[Paragraph(inline(text), ST["ftxt"]), Paragraph(f"({number})", ST["fnum"])]],
+            colWidths=[WIDTH - 1.2 * cm, 1.2 * cm],
+        )
+        inner = text
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f6f9")),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#dde2ea")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return t
+
+
 def figure(path: Path, caption: str, width: float):
     from PIL import Image as PILImage
 
     with PILImage.open(path) as im:
         w, h = im.size
-    scale = min(width / w, 12.5 * cm / h)
+    scale = min(width / w, 12.0 * cm / h)
     img = Image(str(path), width=w * scale, height=h * scale)
     parts = [img]
     if caption:
@@ -137,19 +193,34 @@ def figure(path: Path, caption: str, width: float):
 
 def render(md_path: Path, out_path: Path):
     lines = md_path.read_text(encoding="utf-8").split("\n")
-    flow = []
+    flow: list = []
     i = 0
     first_h1 = True
+    pending_cap: str | None = None
+
     while i < len(lines):
-        raw = lines[i]
-        line = raw.rstrip()
-        s = line.strip()
+        s = lines[i].strip()
 
         if s == "<!--pagebreak-->":
             flow.append(PageBreak())
             i += 1
             continue
         if not s:
+            i += 1
+            continue
+
+        if s.startswith("<!--"):
+            m = DIRECTIVE.match(s)
+            if m:
+                tag, val = m.group(1), m.group(2)
+                if tag == "cap":
+                    pending_cap = val
+                elif tag == "entitle":
+                    flow.append(Paragraph(val, ST["entitle"]))
+                elif tag == "enabstract":
+                    flow.append(Paragraph("<b>Abstract.</b> " + val, ST["enabs"]))
+                elif tag == "enkw":
+                    flow.append(Paragraph("<b>Keywords:</b> " + val, ST["enkw"]))
             i += 1
             continue
 
@@ -160,10 +231,10 @@ def render(md_path: Path, out_path: Path):
             while i < len(lines) and not lines[i].strip().startswith("```"):
                 buf.append(lines[i])
                 i += 1
-            i += 1  # 跳过结束围栏
+            i += 1
             if buf:
                 pre = Preformatted("\n".join(buf), ST["code"])
-                box = Table([[pre]], colWidths=[16.0 * cm], hAlign="LEFT")
+                box = Table([[pre]], colWidths=[WIDTH], hAlign="LEFT")
                 box.setStyle(TableStyle([
                     ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f5f5f5")),
                     ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#dcdfe4")),
@@ -176,11 +247,11 @@ def render(md_path: Path, out_path: Path):
             continue
 
         # 图片：![fig](path|caption)
-        m = re.match(r"!\[\w*\]\(([^|)]+)\|?([^)]*)\)", s)
+        m = re.match(r"!\[\w*\]\(([^|)]+)\|([^)]*)\)", s)
         if m:
             p = DOCS / m.group(1)
             if p.exists():
-                flow.append(figure(p, m.group(2), 16.0 * cm))
+                flow.append(figure(p, m.group(2), WIDTH))
             i += 1
             continue
 
@@ -188,9 +259,13 @@ def render(md_path: Path, out_path: Path):
         if s.startswith("|"):
             rows, i = parse_table(lines, i)
             if rows:
-                flow.append(Spacer(1, 4))
-                flow.append(build_table(rows, 16.0 * cm))
-                flow.append(Spacer(1, 8))
+                parts = []
+                if pending_cap:
+                    parts.append(Paragraph(inline(pending_cap), ST["tabcap"]))
+                    pending_cap = None
+                parts.append(build_table(rows, WIDTH))
+                flow.append(KeepTogether(parts))
+                flow.append(Spacer(1, 9))
             continue
 
         # 标题
@@ -198,11 +273,7 @@ def render(md_path: Path, out_path: Path):
             txt = s[2:].strip()
             if first_h1:
                 flow.append(Paragraph(inline(txt), ST["title"]))
-                flow.append(Spacer(1, 4))
-                flow.append(Paragraph(
-                    '<font color="#666666" size="9">图书馆推荐算法竞赛 · 初赛技术报告</font>',
-                    ST["caption"]))
-                flow.append(Spacer(1, 10))
+                flow.append(Paragraph(SUBTITLE, ST["subtitle"]))
                 first_h1 = False
             else:
                 flow.append(Paragraph(inline(txt), ST["h2"]))
@@ -217,9 +288,36 @@ def render(md_path: Path, out_path: Path):
             i += 1
             continue
 
-        # 公式/引用行
+        # 公式行（可带编号）
         if s.startswith("> "):
-            flow.append(Paragraph(inline(s[2:]), ST["formula"]))
+            body = s[2:].strip()
+            m = EQNUM.match(body)
+            if m:
+                flow.append(Spacer(1, 3))
+                flow.append(build_formula(m.group(1), m.group(2)))
+                flow.append(Spacer(1, 7))
+            else:
+                flow.append(Spacer(1, 3))
+                flow.append(build_formula(body, None))
+                flow.append(Spacer(1, 7))
+            i += 1
+            continue
+
+        # 参考文献条目
+        if re.match(r"^\[\d+\]", s):
+            flow.append(Paragraph(inline(s), ST["ref"]))
+            i += 1
+            continue
+
+        # 关键词行
+        if s.startswith("**关键词**"):
+            flow.append(Paragraph(inline(s), ST["kw"]))
+            i += 1
+            continue
+
+        # 中文摘要（首行，紧跟标题）
+        if s.startswith("**摘要**"):
+            flow.append(Paragraph(inline(s), ST["abs"]))
             i += 1
             continue
 
@@ -231,31 +329,33 @@ def render(md_path: Path, out_path: Path):
         # 有序列表
         m = re.match(r"(\d+)\.\s+(.*)", s)
         if m:
-            flow.append(Paragraph(inline(m.group(2)), ST["bullet"],
-                                  bulletText=f"{m.group(1)}."))
+            flow.append(Paragraph(inline(m.group(2)), ST["bullet"], bulletText=f"{m.group(1)}."))
             i += 1
             continue
 
         flow.append(Paragraph(inline(s), ST["body"]))
         i += 1
 
-    def on_page(canvas, doc):
+    def decorate(canvas, doc):
         canvas.saveState()
-        canvas.setFont(BODY_FONT, 8)
+        canvas.setFont(BODY_FONT, 7.6)
         canvas.setFillColor(GREY)
-        canvas.drawCentredString(A4[0] / 2, 1.2 * cm, f"— {doc.page} —")
+        canvas.drawString(2 * cm, A4[1] - 1.42 * cm, REPORT_NAME)
+        canvas.drawRightString(A4[0] - 2 * cm, A4[1] - 1.42 * cm, "匿名参赛作品")
         canvas.setStrokeColor(colors.HexColor("#d9dde3"))
         canvas.setLineWidth(0.5)
         canvas.line(2 * cm, A4[1] - 1.5 * cm, A4[0] - 2 * cm, A4[1] - 1.5 * cm)
+        canvas.setFont(BODY_FONT, 8)
+        canvas.drawCentredString(A4[0] / 2, 1.2 * cm, f"— {doc.page} —")
         canvas.restoreState()
 
     doc = SimpleDocTemplate(
         str(out_path), pagesize=A4,
         leftMargin=2 * cm, rightMargin=2 * cm,
-        topMargin=2 * cm, bottomMargin=1.9 * cm,
-        title="图书馆个性化图书推荐技术报告", author="参赛队伍",
+        topMargin=2.1 * cm, bottomMargin=1.9 * cm,
+        title="图书馆个性化图书推荐技术报告", author="匿名参赛作品",
     )
-    doc.build(flow, onFirstPage=on_page, onLaterPages=on_page)
+    doc.build(flow, onFirstPage=decorate, onLaterPages=decorate)
     return out_path
 
 
