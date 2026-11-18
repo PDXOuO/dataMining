@@ -30,7 +30,9 @@ PARAMS = {
     "new_quantile": 0.70,    # 新书在其二级类目内的赋分分位
     "max_new": 2,            # 每份列表新书上限
     "top_k": 10,
-    "dept_backoff": True,    # 画像键逐级回退
+    "use_major": 0,          # 是否用「学院×专业」二级群体（0 关闭）
+    "lam_major": 2.0,        # 专业层向学院层回退的收缩强度
+    "min_major_n": 15,       # 专业层最少样本，低于此直接回退学院
 }
 
 
@@ -41,7 +43,8 @@ class FinalRecommender:
         self.p = {**PARAMS, **(params or {})}
 
     # ---------------- 训练 ----------------
-    def fit(self, bench: Bench, train: pd.DataFrame) -> "FinalRecommender":
+    def fit(self, bench: Bench, train: pd.DataFrame,
+            hist_for_group: pd.DataFrame | None = None) -> "FinalRecommender":
         p = self.p
         self.bench = bench
         items = bench.calls
@@ -63,7 +66,7 @@ class FinalRecommender:
             from .data_loader import normalize_dept
             tr_dept = tr["dept"].astype(str).map(normalize_dept)
 
-        hf = hist_frame(bench)
+        hf = hist_for_group if hist_for_group is not None else hist_frame(bench)
         hf = hf[hf["call_no"].isin(self.item_idx)]
         hist_cnt = np.zeros(n, dtype=np.float64)
         if len(hf):
@@ -106,7 +109,41 @@ class FinalRecommender:
 
         self._build_dept_scores()
         self._build_newbook_scores()
+        self._build_group_counts(tr, tr_dept, hf)
         return self
+
+    def _build_group_counts(self, tr: pd.DataFrame, tr_dept: pd.Series,
+                            hf: pd.DataFrame) -> None:
+        """「学院×专业」二级群体计数。决赛新人占一半，专业往往比学院更有分辨力；
+        样本不足时在评分阶段回退到学院层，不做硬分组。"""
+        self.group_cnt: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
+        if not self.p["use_major"]:
+            return
+        from .data_loader import normalize_major
+
+        if "major_n" in tr.columns:
+            tr_major = tr["major_n"].astype(str)
+        else:
+            tr_major = tr["major"].astype(str).map(normalize_major)
+
+        idx = tr["call_no"].map(self.item_idx)
+        df = pd.DataFrame({"d": tr_dept.values, "m": tr_major.values,
+                           "i": idx.values}).dropna(subset=["i"])
+        frames = [df]
+        if len(hf):
+            hm = self.bench.readers.set_index("读者ID")["major_n"].to_dict()
+            hd = pd.DataFrame({
+                "d": hf["dept"].values,
+                "m": [hm.get(r, "未知") for r in hf["reader"]],
+                "i": hf["call_no"].map(self.item_idx).values,
+            }).dropna(subset=["i"])
+            frames.append(hd)
+        df = pd.concat(frames, ignore_index=True)
+        df = df[~df["m"].isin(["未知", "nan", ""])]
+
+        for (d, m), g in df.groupby(["d", "m"], sort=False):
+            vc = g["i"].astype(int).value_counts()
+            self.group_cnt[(d, m)] = (vc.index.to_numpy(), vc.to_numpy(dtype=np.float64))
 
     def _build_dept_scores(self):
         """s_d(i) = (c_d(i) + λ·n_d·prior_d(i)) / (n_d(1+λ))，prior 用类目占比 × 类目内全局份额。"""
@@ -128,19 +165,29 @@ class FinalRecommender:
             self.dept_score[d] = s.astype(np.float32)
 
     def _build_newbook_scores(self):
-        """新入藏无计数，按所在二级类目在该学院下的分位数赋分。"""
+        """新入藏无计数，按所在二级类目在该学院下的分位数赋分。
+
+        实现上按「类目分组、学院成列」批量分位（一次排序出 23 个学院的分位值），
+        避免逐 (学院, 类目) 调 np.quantile —— 那样是 15 万次调用，实测要 20 秒。
+        """
         q = self.p["new_quantile"]
         D, n = self.dept_score.shape
-        self.new_score = np.zeros((D, n), dtype=np.float32)
-        for d in range(D):
-            s = self.dept_score[d]
-            for c2 in range(len(self.c2_list)):
-                m = self.c2_of_item == c2
-                if not m.any():
-                    continue
-                known = m & (~self.is_new) & (s > 0)
-                ref = np.quantile(s[known], q) if known.sum() >= 3 else np.quantile(s[m], q)
-                self.new_score[d, m] = ref
+        S = self.dept_score.T.astype(np.float64)          # n × D
+        out = np.zeros((n, D), dtype=np.float32)
+
+        order = np.argsort(self.c2_of_item, kind="stable")
+        sizes = np.bincount(self.c2_of_item, minlength=len(self.c2_list))
+        bounds = np.concatenate([[0], np.cumsum(sizes)])
+        for g in range(len(self.c2_list)):
+            idx = order[bounds[g]:bounds[g + 1]]
+            if idx.size == 0:
+                continue
+            known = ~self.is_new[idx]
+            sub = S[idx][known] if known.sum() >= 3 else S[idx]
+            sub = np.sort(sub, axis=0)
+            k = min(int(q * (sub.shape[0] - 1)), sub.shape[0] - 1)
+            out[idx, :] = sub[k][None, :]
+        self.new_score = out.T.astype(np.float32)
 
     # ---------------- 推理 ----------------
     def _dept_of(self, row) -> int:
@@ -149,25 +196,57 @@ class FinalRecommender:
             return self.dept_code[v]
         return -1
 
+    def _group_score(self, dept: int, row) -> np.ndarray | None:
+        """专业层分数，向学院层收缩；样本不足或专业缺失返回 None 走学院层。"""
+        if dept < 0 or not self.group_cnt:
+            return None
+        major = row.get("major_n")
+        if not isinstance(major, str) or major in ("未知", ""):
+            return None
+        got = self.group_cnt.get((self.depts[dept], major))
+        if got is None:
+            return None
+        idx, cnt = got
+        ng = cnt.sum()
+        if ng < self.p["min_major_n"]:
+            return None
+        arr = np.zeros(self.n, dtype=np.float32)
+        arr[idx] = cnt
+        lam = self.p["lam_major"]
+        sd = self.dept_score[dept]
+        return ((arr + lam * ng * sd) / (ng * (1 + lam))).astype(np.float32)
+
     def score_user(self, rid: str) -> np.ndarray:
         bench = self.bench
         row = self._row(rid)
         dept = self._dept_of(row)
-        base = self.dept_score[dept].copy() if dept >= 0 else self.global_share.astype(np.float32).copy()
+        if dept >= 0:
+            base = self.dept_score[dept].copy()
+            gs = self._group_score(dept, row)
+            if gs is not None:
+                base = gs
+        else:
+            base = self.global_share.astype(np.float32).copy()
 
         hist = bench.hist.get(rid, [])
         if hist:
             idx = [self.item_idx[c] for c in hist if c in self.item_idx]
             if idx:
                 c2_hist = defaultdict(float)
-                c1_hist = set()
+                c1_hist = defaultdict(float)
                 for i in idx:
                     c2_hist[self.c2_of_item[i]] += 1.0
-                top = max(c2_hist.values())
+                    c1_hist[self.cls1_of_item[i]] += 1.0
                 boost = np.ones(self.n, dtype=np.float32)
+                top = max(c2_hist.values())
                 for c2, cnt in c2_hist.items():
                     m = self.c2_of_item == c2
                     boost[m] *= 1.0 + self.p["k_cls2"] * (cnt / top)
+                if self.p["k_cls1"] > 0:
+                    top1 = max(c1_hist.values())
+                    for c1, cnt in c1_hist.items():
+                        m = self.cls1_of_item == c1
+                        boost[m] *= 1.0 + self.p["k_cls1"] * (cnt / top1)
                 base = base * boost
                 base[idx] = -1.0            # 已读不推
 
