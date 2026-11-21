@@ -193,12 +193,14 @@ python run.py --final
 |---|---|---|
 | 初赛四折 | 有真实答案，结构选择的依据 | **8.40**（7.44 / 8.91 / 8.84 / 8.39） |
 | 决赛历史留出 | 拿老人后半段历史当答案，最贴近决赛 | 7.77（n=109，仅看方向） |
+| 扰动实测 | 四折上施加「30% 画像抹除」与「10% 历史截断」 | 8.06 → A 7.01 / B 7.77 |
 
 复现命令：
 
 ```bash
 python scripts/eval_final.py              # 初赛四折
 python scripts/eval_selftrain.py          # 决赛历史留出
+python scripts/eval_perturb.py            # 扰动 A/B 实测（约 1 分钟）
 ```
 
 ### 参数已锁定
