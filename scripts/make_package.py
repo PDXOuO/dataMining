@@ -82,7 +82,8 @@ NOTE_FINAL = f"""图书馆推荐算法竞赛（C 题）决赛提交说明
 2. 提交_隐藏榜.csv            对应 决赛_隐藏榜_输入.csv            575 行
 3. 提交_隐藏榜_扰动A.csv      对应 决赛_隐藏榜_输入_扰动A_画像缺失.csv  575 行
 4. 提交_隐藏榜_扰动B.csv      对应 决赛_隐藏榜_输入_扰动B_历史扰动.csv  575 行
-5. {INNER_FINAL.name}
+5. 技术报告_决赛.pdf          决赛方案说明（方法、三套离线验证、消融、鲁棒性分析）
+6. {INNER_FINAL.name}
    完整工程（源码 + 依赖 + 决赛原始数据 + 运行说明），解压后见 README.md 第十节。
 
 四份提交为同一套模型在不同输入上的推理结果，未为扰动条件单独调参。
@@ -185,6 +186,11 @@ def build_final() -> None:
         zf.writestr("提交说明.txt", NOTE_FINAL)
         for f in FINAL_SUBS:
             zf.write(src / f, f)
+        report = SUB / "技术报告_决赛.pdf"
+        if report.exists():
+            zf.write(report, report.name)
+        else:
+            print("  ! 缺少 技术报告_决赛.pdf，按无报告打包")
         zf.write(INNER_FINAL, INNER_FINAL.name)
     print(f"内层包：{INNER_FINAL.name}  {n} 个文件  {inner_sz / 1024 / 1024:.1f} MB")
     print(f"外层包：{OUTER_FINAL.name}  {OUTER_FINAL.stat().st_size / 1024 / 1024:.1f} MB")

@@ -191,7 +191,13 @@ def figure(path: Path, caption: str, width: float):
     return KeepTogether(parts)
 
 
-def render(md_path: Path, out_path: Path):
+def render(md_path: Path, out_path: Path,
+           report_name: str | None = None, subtitle: str | None = None):
+    global REPORT_NAME, SUBTITLE
+    if report_name:
+        REPORT_NAME = report_name
+    if subtitle:
+        SUBTITLE = subtitle
     lines = md_path.read_text(encoding="utf-8").split("\n")
     flow: list = []
     i = 0
@@ -363,10 +369,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=str(DOCS / "report.md"))
     ap.add_argument("--out", default=str(ROOT / "outputs" / "技术报告.pdf"))
+    ap.add_argument("--name", default=None, help="页眉报告名")
+    ap.add_argument("--subtitle", default=None, help="标题下副标题")
     a = ap.parse_args()
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    render(Path(a.src), out)
+    render(Path(a.src), out, a.name, a.subtitle)
     print("已生成：", out, f"({out.stat().st_size / 1024:.0f} KB)")
 
 
