@@ -35,6 +35,14 @@ PARAMS = {
     "use_major": 1,          # 是否用「学院×专业」二级群体（0 关闭）
     "lam_major": 1.5,        # 专业层向学院层回退的收缩强度
     "min_major_n": 100,      # 专业层最少样本，低于此直接回退学院
+    # v3 待验证的两项（默认值 = 不改行为，便于单独消融）
+    # v3 定稿：类目偏好比开四次方根。历史中位仅 3 本，频次比 (cnt/top)
+    # 在短历史上噪声很大，开方后提权更平缓；四折 8.40 → 8.49，四折全升。
+    "boost_pow": 0.4,
+    "len_shrink": 0.0,       # 历史过短时按 len/(len+s) 削弱提权强度（实测无增益，关闭）
+    # 群体计数的时间衰减：四折 +0.15、自监督 +0.21，但「旧底座+新历史」模拟
+    # 三折全跌 0.35~0.38（与 hist_weight 叠加后重复惩罚旧数据），证据冲突，不启用。
+    "recency_tau": 0.0,
 }
 
 
@@ -59,7 +67,14 @@ class FinalRecommender:
         tr = train[tr_mask]
 
         gf = np.zeros(n, dtype=np.float64)
-        np.add.at(gf, tr["call_no"].map(self.item_idx).to_numpy(), 1.0)
+        # 群体计数的时间衰减：决赛答案窗口距训练集末端约 20 个月，
+        # 越旧的借阅越可能反映已过时的阅读倾向（τ=0 时退化为不加权）
+        if p["recency_tau"] > 0 and "ts" in tr.columns:
+            days = (tr["ts"].max() - tr["ts"]).dt.days.to_numpy()
+            w_tr = np.exp(-days / p["recency_tau"])
+        else:
+            w_tr = np.ones(len(tr), dtype=np.float64)
+        np.add.at(gf, tr["call_no"].map(self.item_idx).to_numpy(), w_tr)
 
         # 训练集可能来自初赛（dept 为简称）或决赛（已归一），统一到归一后字段
         if "dept_n" in tr.columns:
@@ -85,8 +100,8 @@ class FinalRecommender:
             return dept_code[d]
 
         rows, cols, vals = [], [], []
-        for d, c in zip(tr_dept, tr["call_no"].map(self.item_idx)):
-            rows.append(dcode(d)); cols.append(int(c)); vals.append(1.0)
+        for d, c, wv in zip(tr_dept, tr["call_no"].map(self.item_idx), w_tr):
+            rows.append(dcode(d)); cols.append(int(c)); vals.append(float(wv))
         if len(hf):
             hfw = hf[hf["call_no"].isin(self.item_idx)]
             for d, c in zip(hfw["dept"], hfw["call_no"].map(self.item_idx)):
@@ -111,11 +126,11 @@ class FinalRecommender:
 
         self._build_dept_scores()
         self._build_newbook_scores()
-        self._build_group_counts(tr, tr_dept, hf)
+        self._build_group_counts(tr, tr_dept, hf, w_tr)
         return self
 
     def _build_group_counts(self, tr: pd.DataFrame, tr_dept: pd.Series,
-                            hf: pd.DataFrame) -> None:
+                            hf: pd.DataFrame, w_tr: np.ndarray | None = None) -> None:
         """「学院×专业」二级群体计数。决赛新人占一半，专业往往比学院更有分辨力；
         样本不足时在评分阶段回退到学院层，不做硬分组。"""
         self.group_cnt: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
@@ -128,9 +143,10 @@ class FinalRecommender:
         else:
             tr_major = tr["major"].astype(str).map(normalize_major)
 
+        w_tr = np.ones(len(tr), dtype=np.float64) if w_tr is None else w_tr
         idx = tr["call_no"].map(self.item_idx)
         df = pd.DataFrame({"d": tr_dept.values, "m": tr_major.values,
-                           "i": idx.values}).dropna(subset=["i"])
+                           "i": idx.values, "w": w_tr}).dropna(subset=["i"])
         frames = [df]
         if len(hf):
             hm = self.bench.readers.set_index("读者ID")["major_n"].to_dict()
@@ -138,14 +154,15 @@ class FinalRecommender:
                 "d": hf["dept"].values,
                 "m": [hm.get(r, "未知") for r in hf["reader"]],
                 "i": hf["call_no"].map(self.item_idx).values,
+                "w": 1.0,   # 注意：专业层历史按 1 计，不乘 hist_weight（实测加权会更差）
             }).dropna(subset=["i"])
             frames.append(hd)
         df = pd.concat(frames, ignore_index=True)
         df = df[~df["m"].isin(["未知", "nan", ""])]
 
         for (d, m), g in df.groupby(["d", "m"], sort=False):
-            vc = g["i"].astype(int).value_counts()
-            self.group_cnt[(d, m)] = (vc.index.to_numpy(), vc.to_numpy(dtype=np.float64))
+            agg = g.groupby("i")["w"].sum()
+            self.group_cnt[(d, m)] = (agg.index.to_numpy(), agg.to_numpy(dtype=np.float64))
 
     def _build_dept_scores(self):
         """s_d(i) = (c_d(i) + λ·n_d·prior_d(i)) / (n_d(1+λ))，prior 用类目占比 × 类目内全局份额。"""
@@ -241,9 +258,14 @@ class FinalRecommender:
                     c1_hist[self.cls1_of_item[i]] += 1.0
                 boost = np.ones(self.n, dtype=np.float32)
                 top = max(c2_hist.values())
+                k = self.p["k_cls2"]
+                if self.p["len_shrink"] > 0:
+                    # 历史只有一两本时，类目偏好本身就是噪声，按样本量打折
+                    L = len(idx)
+                    k = k * L / (L + self.p["len_shrink"])
                 for c2, cnt in c2_hist.items():
                     m = self.c2_of_item == c2
-                    boost[m] *= 1.0 + self.p["k_cls2"] * (cnt / top)
+                    boost[m] *= 1.0 + k * (cnt / top) ** self.p["boost_pow"]
                 if self.p["k_cls1"] > 0:
                     top1 = max(c1_hist.values())
                     for c1, cnt in c1_hist.items():

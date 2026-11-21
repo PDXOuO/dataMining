@@ -2,13 +2,13 @@
 
 **摘要**　本报告为第五届数据挖掘竞赛 C 题决赛方案。与初赛相比，决赛有两处结构性变化：答案不再公开，模型必须泛化而不能对着答案调参；模型还要在「读者画像被抹除 30%」与「借阅历史被截断」两种退化输入上再跑一遍，稳定性计入 14% 的总分。我们沿用初赛验证过的「院校—类目分层贝叶斯」主干，并针对决赛新增三件事：其一，把群体层从单一的学院细化到「学院 × 专业」，用贝叶斯收缩在两级之间自适应切换；其二，把群体底座从单一训练集扩展为「训练集 + 决赛输入历史」，解决训练集止于 2025 年 1 月、与答案窗口相隔 20 个月的时间断层；其三，为画像缺失设计学院→专业→全局的逐级回退，为历史缺失设计「只依赖类目而非顺序」的打分路径。
 
-离线我们用三套互补口径评估：初赛四折时间切分（有真实答案，用于结构选择，均值 **8.40**）、决赛历史留出（最贴近决赛分布，n=109，7.77）、以及扰动实测（四折上施加与决赛同构的两种退化，**8.06 → 7.01 / 7.77**，据此估算鲁棒分 R≈0.49）。四份提交文件在同一套代码、同一组参数下生成，无随机过程，从解压到产出约 20 秒，输出与提交件逐字节一致。
+离线我们用三套互补口径评估：初赛四折时间切分（有真实答案，用于结构选择，均值 **8.49**）、决赛历史留出（最贴近决赛分布，n=109，7.77）、以及扰动实测（四折上施加与决赛同构的两种退化，**8.16 → 7.04 / 7.87**，据此估算鲁棒分 R≈0.50）。四份提交文件在同一套代码、同一组参数下生成，无随机过程，从解压到产出约 20 秒，输出与提交件逐字节一致。
 
 **关键词**：推荐系统；冷启动；分层贝叶斯估计；鲁棒性；数据退化；图书馆借阅数据
 
 <!--entitle: Book Recommendation under Anonymised Cold Start and Degraded Inputs-->
 
-<!--enabstract: This report describes our final-round solution for the C problem of the 5th Data Mining Competition. The final round differs from the preliminary in two structural ways: the ground truth is no longer published, so the model must generalise rather than be tuned against answers; and the model must be re-run on two degraded inputs -- 30% of reader profiles erased and borrowing histories truncated -- with stability worth 14% of the total score. We keep the department-category hierarchical Bayesian backbone validated in the preliminary round and add three components. First, the group layer is refined from department to department x major, with Bayesian shrinkage switching adaptively between the two levels. Second, the group prior is extended from the training set alone to training set plus final-round input histories, bridging a 20-month gap between the last training record and the answer window. Third, profile loss is handled by a department -> major -> global fallback chain, and history loss by a scoring path that depends on categories rather than sequence order. We evaluate with three complementary protocols: four temporal splits from the preliminary training data (mean 8.40), a held-out split of final-round histories (7.77, n=109), and a perturbation test that applies structurally identical degradations to the four splits (8.06 -> 7.01 / 7.77, implying a robustness ratio of about 0.49). All four submission files are produced by one code path, one parameter set, with no stochasticity, in about 20 seconds.-->
+<!--enabstract: This report describes our final-round solution for the C problem of the 5th Data Mining Competition. The final round differs from the preliminary in two structural ways: the ground truth is no longer published, so the model must generalise rather than be tuned against answers; and the model must be re-run on two degraded inputs -- 30% of reader profiles erased and borrowing histories truncated -- with stability worth 14% of the total score. We keep the department-category hierarchical Bayesian backbone validated in the preliminary round and add three components. First, the group layer is refined from department to department x major, with Bayesian shrinkage switching adaptively between the two levels. Second, the group prior is extended from the training set alone to training set plus final-round input histories, bridging a 20-month gap between the last training record and the answer window. Third, profile loss is handled by a department -> major -> global fallback chain, and history loss by a scoring path that depends on categories rather than sequence order. We evaluate with three complementary protocols: four temporal splits from the preliminary training data (mean 8.49), a held-out split of final-round histories (7.77, n=109), and a perturbation test that applies structurally identical degradations to the four splits (8.16 -> 7.04 / 7.87, implying a robustness ratio of about 0.50). All four submission files are produced by one code path, one parameter set, with no stochasticity, in about 20 seconds.-->
 
 <!--enkw: recommender system; cold start; hierarchical Bayesian estimation; robustness; degraded inputs; library circulation data-->
 
@@ -17,10 +17,10 @@
 <!--cap: 表 1　关键结果一览-->
 | 项目 | 结果 |
 |---|---|
-| 初赛四折回测（有真实答案） | **8.40**（7.44 / 8.91 / 8.84 / 8.39） |
+| 初赛四折回测（有真实答案） | **8.49**（7.64 / 8.97 / 8.85 / 8.52） |
 | 决赛历史留出（n=109） | 7.77 |
-| 扰动实测（四折） | 原始 8.06；画像缺失 7.01；历史截断 7.77 |
-| 鲁棒分估算 | R = min(1, 7.39 / 15) ≈ 0.49 |
+| 扰动实测（四折） | 原始 8.16；画像缺失 7.04；历史截断 7.87 |
+| 鲁棒分估算 | R = min(1, 7.46 / 15) ≈ 0.50 |
 | 同口径官方基线（隐藏榜） | 5.15（全局热门）/ 1.63（同学院）/ 5.37（分类偏好） |
 | 提交文件 | 四份，格式七项自查全部通过 |
 | 复现 | 解压后约 20 秒，输出与提交件 MD5 一致 |
@@ -112,15 +112,15 @@ w 取 3。这个值不是拍定的：我们把训练集切成「12 个月前底�
 
 > s_g(i) = ( c_g(i) + λ_m · n_g · s_d(i) ) / ( n_g · (1 + λ_m) ) (5)
 
-这一层的收益是本次最大的单项改动：四折均值 7.93 → 8.40（+0.47）。它的作用机制不是「更细就更好」，而是**在样本足够时提供分辨力、样本不足时自动退回稳健层级**——同学院热门只有 1.63 这一事实正说明硬分组会被噪声吞掉。
+这一层的收益是本次最大的单项改动：四折均值 7.89 → 8.49（+0.60）。它的作用机制不是「更细就更好」，而是**在样本足够时提供分辨力、样本不足时自动退回稳健层级**——同学院热门只有 1.63 这一事实正说明硬分组会被噪声吞掉。
 
 ### 3.4 个体侧调整与一个实现陷阱
 
 老人组对其历史覆盖过的二级类目做乘性提权，提权强度按该类目在历史中的相对频次缩放：
 
-> boost(i) = 1 + k · cnt( c2(i) ) / max_{c2} cnt( c2 ) (6)
+> boost(i) = 1 + k · [ cnt( c2(i) ) / max_{c2} cnt( c2 ) ]^p ，p = 0.4 (6)
 
-k 取 1.6。随后把历史中已出现的书置为 -1，保证不复推。
+k 取 1.6。指数 p 是最后一次改动：取 p=1（线性）时四折 8.40，取 p=0.4 后 8.49，四折逐折全升。原因与 2.2 节的观察一致——老人历史中位只有 3 本，此时频次比 `cnt/max` 的估计噪声极大，线性放大等于放大噪声；开方后最强的类目仍然明显领先，但次强类目不再被压到 1 倍附近，推荐列表的类目覆盖也更宽。p 在 0.3–0.6 之间几乎持平（8.48–8.50），取 0.4 落在平台区中部。随后把历史中已出现的书置为 -1，保证不复推。
 
 这里有一个值得记录的实现陷阱：新入藏赋分（3.5 节）以 `max(base, new)` 的方式抬升新书分数，而**「新入藏且已被该读者借过」的书，其 -1 标记会被这步抬回正值**。这类书在扰动 B 下尤其容易浮出水面——历史被截断后，其余候选变少，被抬回的那本恰好进入前 10。我们在自查中发现扰动 B 有 1 名读者被复推，定位后在新书赋分之后**二次压制已读**，并在热度兜底补位时同样排除已读。修复后四份提交的复推读者数均为 0。这个 bug 不会影响分数上限，但正是手册第 2 条「按历史借过的书推荐等于 0 命中」所警告的那类错误。
 
@@ -143,22 +143,22 @@ k 取 1.6。随后把历史中已出现的书置为 -1，保证不复推。
 <!--cap: 表 5　三套离线口径的定位-->
 | 口径 | 构造方式 | 样本 | 用途 | 本方案成绩 |
 |---|---|---|---|---|
-| 初赛四折 | 四个时间切分点，候选池截止到切分点 | 500–1200 人/折 | 结构选择的主依据 | 8.40 |
+| 初赛四折 | 四个时间切分点，候选池截止到切分点 | 500–1200 人/折 | 结构选择的主依据 | 8.49 |
 | 决赛历史留出 | 取老人后半段历史为答案 | 109 人 | 最贴近决赛分布，仅看方向 | 7.77 |
-| 扰动实测 | 四折上施加 30% 画像抹除 / 10% 历史截断 | 同上 | 估算鲁棒分 | 7.01 / 7.77 |
+| 扰动实测 | 四折上施加 30% 画像抹除 / 10% 历史截断 | 同上 | 估算鲁棒分 | 7.04 / 7.87 |
 
 ### 4.1 初赛四折
 
 <!--cap: 表 6　四折逐折结果（新人为新人口径得分，老人为老人口径得分）-->
 | 切分点 | 总分 | 新人组 | 老人组 | 新人/老人人数 |
 |---|---|---|---|---|
-| 2023-09-01 | 7.44 | 7.22 | 7.59 | 1167 / 584 |
-| 2024-03-01 | 8.91 | 11.97 | 6.86 | 860 / 529 |
-| 2024-06-01 | 8.84 | 12.37 | 6.48 | 631 / 346 |
-| 2024-09-01 | 8.39 | 11.37 | 6.41 | 524 / 289 |
-| 均值 | **8.40** | 10.73 | 6.84 | — |
+| 2023-09-01 | 7.64 | 7.22 | 7.92 | 1167 / 584 |
+| 2024-03-01 | 8.97 | 11.97 | 6.97 | 860 / 529 |
+| 2024-06-01 | 8.85 | 12.37 | 6.50 | 631 / 346 |
+| 2024-09-01 | 8.52 | 11.37 | 6.62 | 524 / 289 |
+| 均值 | **8.49** | 10.73 | 7.00 | — |
 
-首折明显偏低（7.44），原因是 2023-09 的切分点使候选池偏小、答案窗口跨越学期边界；我们在结构比较时统一用四折均值，避免被单折波动误导。
+首折明显偏低（7.64），原因是 2023-09 的切分点使候选池偏小、答案窗口跨越学期边界；我们在结构比较时统一用四折均值，避免被单折波动误导。
 
 ### 4.2 决赛历史留出
 
@@ -173,12 +173,12 @@ k 取 1.6。随后把历史中已出现的书置为 -1，保证不复推。
 <!--cap: 表 7　主要结构项的消融（初赛四折均值）-->
 | 变体 | 四折均值 | 变化 | 结论 |
 |---|---|---|---|
-| 完整模型 | 8.40 | — | 定稿 |
-| 去掉专业层（仅学院） | 7.93 | -0.47 | 专业层有效，采纳 |
-| 去掉历史提权（k=0） | 8.22 | -0.18 | 有效但幅度小 |
-| 提权 k=1.0 | 8.46 | +0.06 | 与 1.6 同级，噪声范围内 |
-| 收缩 λ=0.5 | 8.43 | +0.03 | 平坦，保持 1.5 |
-| 新书配额 = 0 | 8.40 | 0.00 | 见下方说明 |
+| 完整模型 | 8.49 | — | 定稿 |
+| 去掉专业层（仅学院） | 7.89 | -0.60 | 专业层有效，采纳 |
+| 去掉历史提权（k=0） | 8.22 | -0.27 | 有效但幅度小 |
+| 提权幂 p=1.0（原式） | 8.40 | -0.09 | 开方后更好，采纳 p=0.4 |
+| 收缩 λ=0.5 | 8.40 | -0.09 | 平坦，保持 1.5 |
+| 新书配额 = 0 | 8.49 | 0.00 | 见下方说明 |
 
 最后一行需要解释：在初赛四折的候选池里，「新书」被定义为切分点前从未被借过的书，其赋分低于头部候选，因此开不开配额对前 10 没有影响——**四折无法评估新书配额**。决赛白名单提供了官方的「是否新入藏」标记，我们据此确认新书确实进入列表（占比 14.0%–16.2%，每行不超过 2 本），配额的作用只能靠公开榜分数最终验证。
 
@@ -196,17 +196,17 @@ k 取 1.6。随后把历史中已出现的书置为 -1，保证不复推。
 <!--cap: 表 8　扰动实测结果（四折均值，括号内为相对原始的变化）-->
 | 条件 | 总分 | 新人组 | 老人组 |
 |---|---|---|---|
-| 原始输入 | 8.06 | 10.77 | 6.26 |
-| 扰动 A（30% 画像缺失） | 7.01（-1.05） | 8.78（-2.00） | 5.83（-0.43） |
-| 扰动 B（10% 历史截断） | 7.77（-0.29） | — | — |
+| 原始输入 | 8.16 | 10.77 | 6.41 |
+| 扰动 A（30% 画像缺失） | 7.04（-1.12） | 8.83（-1.94） | 5.85（-0.56） |
+| 扰动 B（10% 历史截断） | 7.87（-0.29） | 10.46 | 6.15 |
 
 两个结论：
 
 **其一，历史截断几乎无害。** 掉 0.29 分，因为打分只依赖类目集合与频次，顺序信息本来就没被使用。这与手册 Q3 的意图一致：模型应当利用历史，但不应该依赖精确的序列位置。
 
-**其二，画像缺失是主要失分点，且损失几乎全在新人组。** 新人组掉 2.00 分，老人组只掉 0.43。原因清楚：老人有历史，类目提权那条路径仍在工作；新人一旦画像被抹，就只能退到全局份额，推荐立刻退化为「全局热门」——而全局热门基线只有 5.15 分。
+**其二，画像缺失是主要失分点，且损失几乎全在新人组。** 新人组掉 1.94 分，老人组只掉 0.56。原因清楚：老人有历史，类目提权那条路径仍在工作；新人一旦画像被抹，就只能退到全局份额，推荐立刻退化为「全局热门」——而全局热门基线只有 5.15 分。
 
-按 R = min(1, 7.39/15) ≈ 0.49 估算，鲁棒项只能拿到约 6.9/14 分。若公开榜与隐藏榜都与四折同水平（8.1），预计总分约 13.8。**这意味着：绝对分数的提升对鲁棒项的边际收益远大于「保稳」。** 任何在主榜上 +1 分的改动，同时也在扰动条件下 +1 分。
+按 R = min(1, 7.46/15) ≈ 0.50 估算，鲁棒项只能拿到约 7.0/14 分。若公开榜与隐藏榜都与四折同水平（8.49），预计总分约 14.3。**这意味着：绝对分数的提升对鲁棒项的边际收益远大于「保稳」。** 任何在主榜上 +1 分的改动，同时也在扰动条件下 +1 分。
 
 ## 7 工程实现与复现
 
@@ -239,8 +239,8 @@ python run.py --final
 |---|---|---|
 | 只交热门榜 | 545 人推荐涉及 505 本不同图书，最热一本仅覆盖 56.9% 读者 | 未踩 |
 | 复推历史借过的书 | 四份提交与该读者输入历史的交集均为 0（修复前扰动 B 有 1 人） | 已修 |
-| 假设画像完整 | 扰动 A 下 7.01，较原始掉 1.05，仍有非零成绩 | 有兜底 |
-| 假设历史完整 | 扰动 B 下 7.77，仅掉 0.29 | 未踩 |
+| 假设画像完整 | 扰动 A 下 7.04，较原始掉 1.12，仍有非零成绩 | 有兜底 |
+| 假设历史完整 | 扰动 B 下 7.87，仅掉 0.29 | 未踩 |
 | 新人不做冷启动 | 新人组四折 10.73，高于全局热门基线 | 未踩 |
 | 忽略新入藏 | 新书占列表 14.0%–16.2%，每行上限 2 本 | 已覆盖 |
 | 不写可复现代码 | 解压后 20 秒复现，MD5 与提交件一致 | 已满足 |
@@ -253,9 +253,9 @@ python run.py --final
 
 ## 9 结论
 
-我们把决赛问题拆成三件事：群体信号怎么来、个体信号怎么用、信号缺失时怎么退。第一件用「训练集 + 输入历史」的双源底座与「学院 × 专业」两级收缩解决，四折 8.40；第二件用类目频次提权，幅度小但方向稳定；第三件用逐级回退与顺序无关的打分，使历史截断几乎无害、画像缺失仍保有 7.01 分。
+我们把决赛问题拆成三件事：群体信号怎么来、个体信号怎么用、信号缺失时怎么退。第一件用「训练集 + 输入历史」的双源底座与「学院 × 专业」两级收缩解决，四折 8.49；第二件用类目频次提权，幅度小但方向稳定；第三件用逐级回退与顺序无关的打分，使历史截断几乎无害、画像缺失仍保有 7.04 分。
 
-需要强调的是我们对结论强度的判断：8.40 是初赛四折上的数字，与决赛分布存在系统性差异（决赛答案更个体化、白名单限定候选、新入藏占比更高），因此**它只能用于比较方案的相对优劣，不能当作决赛分数的预期**。真正的校准要等公开榜反馈；我们已把三套离线脚本与参数锁定机制准备好，任何一版改动都能在 20 秒内重新产出四份提交并逐份自查。
+需要强调的是我们对结论强度的判断：8.49 是初赛四折上的数字，与决赛分布存在系统性差异（决赛答案更个体化、白名单限定候选、新入藏占比更高），因此**它只能用于比较方案的相对优劣，不能当作决赛分数的预期**。真正的校准要等公开榜反馈；我们已把三套离线脚本与参数锁定机制准备好，任何一版改动都能在 20 秒内重新产出四份提交并逐份自查。
 
 ## 参考文献
 
