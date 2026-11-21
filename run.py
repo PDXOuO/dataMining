@@ -1,9 +1,10 @@
-"""一键入口：从原始数据生成验证集提交文件并校验。
+"""一键入口：从原始数据生成提交文件并校验。
 
 用法：
-    python run.py                # 生成 outputs/result.csv 并校验
-    python run.py --check        # 仅校验已存在的 outputs/result.csv
-    python run.py --backtest     # 额外跑四折回测，打印总分
+    python run.py                # 初赛：生成 outputs/result.csv 并校验
+    python run.py --check        # 初赛：仅校验已存在的 outputs/result.csv
+    python run.py --backtest     # 初赛：额外跑四折回测，打印总分
+    python run.py --final        # 决赛：生成四份提交到 submission/final/ 并逐份校验
 """
 from __future__ import annotations
 
@@ -54,7 +55,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="仅校验已有结果文件")
     ap.add_argument("--backtest", action="store_true", help="额外运行四折回测")
+    ap.add_argument("--final", action="store_true",
+                    help="决赛：生成四份提交（公开榜/隐藏榜/扰动A/扰动B）")
     args = ap.parse_args()
+
+    if args.final:
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "submit_final.py")],
+                       check=True)
+        sys.exit(0)
 
     if args.check:
         sys.exit(run_check())

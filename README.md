@@ -79,26 +79,33 @@ docker run --rm -v "$PWD/outputs:/app/outputs" librec
 
 ```
 .
-├── data/                 # 赛题数据（组委会提供）
+├── data/                 # 初赛数据（组委会提供）
+├── 02_数据/              # 决赛数据（含白名单与扰动输入）
 ├── src/
 │   ├── config.py         # 路径、常量、指标权重
 │   ├── data_loader.py    # 横表 Excel / GBK 新书池 / BOM 验证集解析与字段归一化
-│   ├── model_final.py    # 定稿模型
+│   ├── model_final.py    # 初赛定稿模型
+│   ├── final_data.py     # 决赛输入解析与白名单对齐
+│   ├── final_model.py    # 决赛模型（学院×专业二级贝叶斯）
 │   ├── recommender.py    # 前代方案（保留用于对照）
 │   ├── splits.py         # 全局时间切分，构造回测任务
 │   ├── metrics.py        # HitRate / Recall / NDCG，对齐官方公式
 │   └── submission.py     # 写文件与格式校验
 ├── scripts/
-│   ├── predict_final.py  # 生成 outputs/result.csv
+│   ├── predict_final.py  # 初赛：生成 outputs/result.csv
+│   ├── submit_final.py   # 决赛：生成四份提交并自查
+│   ├── eval_final.py     # 决赛模型在初赛四折上的回测
+│   ├── eval_selftrain.py # 决赛历史留出验证
 │   ├── backtest.py       # 单折回测
 │   ├── report_tables.py  # 四折 × 7 变体对照表
 │   ├── make_figures.py   # 报告配图
 │   ├── make_report.py    # 技术报告 PDF
 │   └── make_pledge.py    # 承诺书 DOCX + PDF
-├── experiments/          # 五轮探索脚本，保留全部被否定的路径
+├── experiments/          # 探索脚本，保留全部被否定的路径
 ├── docs/                 # 报告底稿、结果表、配图、分支方案文档
-├── outputs/              # 提交产物
-├── run.py                # 一键入口
+├── outputs/              # 初赛产物
+├── submission/final/     # 决赛四份提交
+├── run.py                # 一键入口（--final 走决赛）
 ├── Dockerfile
 └── Makefile
 ```
@@ -148,3 +155,53 @@ docker run --rm -v "$PWD/outputs:/app/outputs" librec
 - 未以任何形式访问、推断决赛测试集；
 - 未尝试还原读者真实身份；
 - 代码、文档、文件名中不含身份信息。
+
+## 十、决赛（阶段 2）
+
+决赛数据在 `02_数据/`，答案不公开；`src/final_data.py` + `src/final_model.py` 是决赛模型，
+与初赛共用指标实现。
+
+### 一条命令生成四份提交
+
+```bash
+pip install -r requirements.txt
+python run.py --final
+```
+
+约 20 秒生成并逐份自查：
+
+| 输出 | 对应输入 | 行数 |
+|---|---|---|
+| `submission/final/提交_公开榜.csv` | `决赛_公开榜_输入.csv` | 545 |
+| `submission/final/提交_隐藏榜.csv` | `决赛_隐藏榜_输入.csv` | 575 |
+| `submission/final/提交_隐藏榜_扰动A.csv` | `决赛_隐藏榜_输入_扰动A_画像缺失.csv` | 575 |
+| `submission/final/提交_隐藏榜_扰动B.csv` | `决赛_隐藏榜_输入_扰动B_历史扰动.csv` | 575 |
+
+四份是**同一套模型、不同输入**的推理结果（手册 Q3 要求），不为扰动单独调参。
+自查覆盖：列名、行数、读者 ID 完整性与顺序、每行 ≤ 10 条、行内无重复、全部落在白名单内、UTF-8 BOM。
+
+### 决赛模型与初赛的差异
+
+1. **群体底座** = 初赛训练集（29841 条，止于 2025-01）+ 决赛输入历史（575 人），后者按 `hist_weight` 加权；
+2. **二级群体层**：在「学院」之上加「学院 × 专业」，专业层向学院层贝叶斯收缩（`lam_major=1.5`），样本 < 100 条直接回退学院；
+3. **画像兜底**：学院 → 专业 → 全局逐级回退，对应扰动 A（30% 画像被抹）；
+4. **新入藏单独打分**：白名单标记的新书按二级类目分位数赋值，每份列表上限 2 本。
+
+### 离线验证
+
+| 口径 | 含义 | 成绩 |
+|---|---|---|
+| 初赛四折 | 有真实答案，结构选择的依据 | **8.40**（7.44 / 8.91 / 8.84 / 8.39） |
+| 决赛历史留出 | 拿老人后半段历史当答案，最贴近决赛 | 7.77（n=109，仅看方向） |
+
+复现命令：
+
+```bash
+python scripts/eval_final.py              # 初赛四折
+python scripts/eval_selftrain.py          # 决赛历史留出
+```
+
+### 参数已锁定
+
+所有参数默认值即提交所用值（`src/final_model.py` 的 `PARAMS`），**不传任何参数直接运行即可逐字节复现提交文件**（四份 CSV 的 MD5 已核对一致）。调参必须先改默认值，否则提交件与代码会脱节。
+
