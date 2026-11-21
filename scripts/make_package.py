@@ -23,6 +23,7 @@ OUTER = SUB / f"{TEAM}_提交包.zip"
 INNER = SUB / f"{TEAM}_源代码与可运行包.zip"
 OUTER_FINAL = SUB / f"{TEAM}_决赛提交包.zip"
 INNER_FINAL = SUB / f"{TEAM}_决赛源代码与可运行包.zip"
+OUTER_S1 = SUB / f"{TEAM}_决赛阶段1_公开榜.zip"
 
 INNER_FILES = [
     "run.py",
@@ -102,6 +103,25 @@ Python 3.10+，无 GPU、无随机过程，8 核 16G 环境下四份合计约 20
 
 【数据合规】
 仅使用组委会发放的数据（初赛训练集 + 决赛输入 + 白名单），未接入任何外部数据。
+"""
+
+# 阶段 1 只交一份 CSV；平台附件不支持 .csv，故打成 zip，且只放根目录一层
+NOTE_S1 = f"""图书馆推荐算法竞赛（C 题）决赛 · 阶段 1 提交说明
+队伍：{TEAM}
+
+【压缩包内文件】
+提交_公开榜.csv    对应 决赛_公开榜_输入.csv，545 行
+                   两列：读者ID,推荐索书号列表
+                   每人 10 个索书号，按置信度降序，UTF-8 BOM
+
+【自查结果】
+读者 ID 与 决赛_公开榜_输入.csv 完全一致（含顺序）
+每行恰好 10 条、行内无重复、全部落在 图书白名单_公开榜.csv 内
+未推荐任何读者历史中已借过的索书号
+
+【说明】
+模型与阶段 2 所用完全一致，未针对公开榜单独调参。
+完整源码、依赖清单与技术报告随阶段 2 提交。
 """
 
 
@@ -197,6 +217,19 @@ def build_final() -> None:
     _list(OUTER_FINAL)
 
 
+def build_stage1() -> None:
+    """阶段 1：只交公开榜一份 CSV，压成单层 zip。"""
+    sub = SUB / "final" / FINAL_SUBS[0]
+    if not sub.exists():
+        raise SystemExit(f"缺少 {sub}\n请先运行 python run.py --final")
+    OUTER_S1.unlink(missing_ok=True)
+    with zipfile.ZipFile(OUTER_S1, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        zf.writestr("提交说明.txt", NOTE_S1)
+        zf.write(sub, FINAL_SUBS[0])
+    print(f"阶段 1 包：{OUTER_S1.name}  {OUTER_S1.stat().st_size / 1024:.0f} KB")
+    _list(OUTER_S1)
+
+
 def _list(path: Path) -> None:
     with zipfile.ZipFile(path) as zf:
         print("\n根目录内容：")
@@ -206,8 +239,11 @@ def _list(path: Path) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", choices=["classic", "final", "both"], default="final")
+    ap.add_argument("--stage", choices=["s1", "classic", "final", "both"], default="final")
     args = ap.parse_args()
+    if args.stage == "s1":
+        build_stage1()
+        return
     if args.stage in ("classic", "both"):
         build_classic()
     if args.stage in ("final", "both"):
