@@ -255,6 +255,10 @@ class FinalRecommender:
         if self.p["max_new"] > 0:
             news = self.new_score[dept] if dept >= 0 else self.new_score.mean(axis=0)
             base = np.where(self.is_new, np.maximum(base, news), base)
+            # 新书赋分会把已读标记的 -1 抬回正值（新入藏且已被借过的书就是这种情况），
+            # 手册明确答案已剔除历史书目，必须再压一次，否则老人组等于 0 命中。
+            if hist:
+                base[[self.item_idx[c] for c in hist if c in self.item_idx]] = -1.0
         return base
 
     def _row(self, rid: str) -> dict:
@@ -279,10 +283,11 @@ class FinalRecommender:
             out.append(self.bench.calls[i])
             if len(out) >= k:
                 break
-        if len(out) < k:   # 兜底：白名单内按全局热度补齐
+        if len(out) < k:   # 兜底：白名单内按全局热度补齐（仍不得复推已读）
+            seen = set(self.bench.hist.get(rid, []))
             for i in np.argsort(-self.global_cnt):
                 c = self.bench.calls[i]
-                if c not in out:
+                if c not in out and c not in seen:
                     out.append(c)
                     if len(out) >= k:
                         break
